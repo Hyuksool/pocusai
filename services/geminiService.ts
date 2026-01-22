@@ -2,9 +2,6 @@ import { GoogleGenAI, Content, Part } from "@google/genai";
 import { Message, PocusMode } from "../types";
 import { SYSTEM_INSTRUCTION_TEMPLATE, SUPPORTED_LANGUAGES } from "../constants";
 
-// Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 /**
  * Sends a message to the Gemini API and returns the response text.
  * Maintains conversation history context and handles image inputs.
@@ -17,6 +14,15 @@ export const sendMessageToGemini = async (
   mode: PocusMode
 ): Promise<string> => {
   try {
+    // API Key check
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY가 설정되지 않았습니다. Vercel 환경 변수를 확인해주세요.");
+    }
+
+    // Initialize Gemini Client right before use
+    const ai = new GoogleGenAI({ apiKey });
+    
     // Find the AI parameter for the selected language
     const languageConfig = SUPPORTED_LANGUAGES.find(l => l.code === languageCode) || SUPPORTED_LANGUAGES[0];
     
@@ -48,7 +54,7 @@ export const sendMessageToGemini = async (
           }
         }
         
-        // Add text part (even if empty, though usually it won't be)
+        // Add text part
         if (msg.text) {
           parts.push({ text: msg.text });
         }
@@ -63,8 +69,7 @@ export const sendMessageToGemini = async (
     let promptText = newMessage;
     
     if (image) {
-       // Append specific instruction to trigger the dual analysis defined in system prompt
-       promptText += "\n\n[SYSTEM REQUEST]: Analyze this image using the 'Hybrid Intelligence Mode'. Perform the Dual-Layer Analysis (Clinical Interpretation vs. AI Morphological Feature Extraction) as defined in your instructions. Compare these to provide the most accurate result.";
+       promptText += "\n\n[SYSTEM REQUEST]: Analyze this image using the 'Hybrid Intelligence Mode'. Perform the Dual-Layer Analysis (Clinical Interpretation vs. AI Morphological Feature Extraction).";
     }
 
     const currentParts: Part[] = [{ text: promptText }];
@@ -72,7 +77,6 @@ export const sendMessageToGemini = async (
     if (image) {
        const mimeMatch = image.match(/^data:(.+);base64,(.+)$/);
        if (mimeMatch) {
-         // Prepend image to the current prompt
          currentParts.unshift({
            inlineData: {
              mimeType: mimeMatch[1],
@@ -82,14 +86,13 @@ export const sendMessageToGemini = async (
        }
     }
 
-    // Filter out the very last message which is the current user message we just added in App.tsx
     const chatHistory = historyContents.slice(0, -1);
 
     const chat = ai.chats.create({
-      model: "gemini-3-pro-preview", // Supports multimodal input
+      model: "gemini-3-pro-preview",
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.2, // Low temperature for factual medical advice
+        temperature: 0.2,
       },
       history: chatHistory,
     });
@@ -102,6 +105,6 @@ export const sendMessageToGemini = async (
 
   } catch (error) {
     console.error("Gemini API Error:", error);
-    throw new Error("Sorry, an error occurred while analyzing the image/request. Please try again.");
+    throw new Error(error instanceof Error ? error.message : "상담 분석 중 오류가 발생했습니다.");
   }
 };
