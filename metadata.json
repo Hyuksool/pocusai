@@ -1,0 +1,7 @@
+{
+  "name": "POCUS AI",
+  "description": "An expert Clinical Ultrasound Consultant providing evidence-based guidance for Adult and Pediatric imaging across a broad spectrum of ultrasound applications.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
