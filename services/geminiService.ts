@@ -13,22 +13,21 @@ export const sendMessageToGemini = async (
   mode: PocusMode
 ): Promise<string> => {
   try {
-    // API Key check from process.env (Vite define shim)
+    // API Key from process.env (injected by Vite define)
     const apiKey = process.env.API_KEY;
     
-    if (!apiKey || apiKey === "undefined") {
-      throw new Error("API Key is missing. Please set API_KEY in your Vercel Environment Variables.");
+    // Detailed check for API Key availability
+    if (!apiKey || apiKey === "undefined" || apiKey === "") {
+      throw new Error("API_KEY가 감지되지 않았습니다. [해결 방법]: 1. Vercel Settings > Environment Variables에 API_KEY가 등록되어 있는지 확인하세요. 2. 변수 추가/수정 후 반드시 'Deployments' 탭에서 최신 커밋을 'Redeploy' 해야 변경 사항이 반영됩니다.");
     }
 
     const ai = new GoogleGenAI({ apiKey });
     const languageConfig = SUPPORTED_LANGUAGES.find(l => l.code === languageCode) || SUPPORTED_LANGUAGES[0];
     const modeString = mode === 'adult' ? 'Adult' : 'Pediatric';
-    const modeLower = mode === 'adult' ? 'adult' : 'pediatric';
 
     let systemInstruction = SYSTEM_INSTRUCTION_TEMPLATE
       .replace(/{LANGUAGE}/g, languageConfig.aiParam)
-      .replace(/{MODE}/g, modeString)
-      .replace(/{MODE_LOWER}/g, modeLower);
+      .replace(/{MODE}/g, modeString);
 
     const historyContents: Content[] = history
       .filter((msg) => !msg.isError)
@@ -56,7 +55,7 @@ export const sendMessageToGemini = async (
 
     let promptText = newMessage;
     if (image) {
-       promptText += "\n\n[SYSTEM REQUEST]: Analyze this image using 'Hybrid Intelligence Mode'. Provide Dual-Layer Analysis.";
+       promptText += "\n\n[SYSTEM REQUEST]: Analyze this image using 'Hybrid Intelligence Mode'. Provide Dual-Layer Analysis including specific sonographic features.";
     }
 
     const currentParts: Part[] = [{ text: promptText }];
@@ -72,13 +71,13 @@ export const sendMessageToGemini = async (
        }
     }
 
-    // Use gemini-3-flash-preview for fast and reliable clinical analysis
+    // Use gemini-3-flash-preview for high-performance clinical reasoning
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [...historyContents.slice(0, -1), { role: 'user', parts: currentParts }],
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.1, // Lower temperature for more clinical consistency
+        temperature: 0.1,
       },
     });
     
