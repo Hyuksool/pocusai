@@ -1,43 +1,85 @@
-<!DOCTYPE html>
-<html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>POCUS AI - Clinical Ultrasound Consultant</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-    <style>
-      body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
-      .medical-bg {
-        background: radial-gradient(circle at 0% 0%, #f1f5f9 0%, transparent 50%),
-                    radial-gradient(circle at 100% 0%, #e0f2fe 0%, transparent 50%),
-                    radial-gradient(circle at 100% 100%, #f8fafc 0%, transparent 50%),
-                    radial-gradient(circle at 0% 100%, #f0f9ff 0%, transparent 50%),
-                    #ffffff;
-      }
-      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
-      .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-      .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
-    "jspdf": "https://esm.sh/jspdf@^4.0.0",
-    "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
-    "vite": "https://esm.sh/vite@^7.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+import { GoogleGenAI, Content, Part } from "@google/genai";
+import { Message, PocusMode } from "../types";
+import { SYSTEM_INSTRUCTION_TEMPLATE, SUPPORTED_LANGUAGES } from "../constants";
+
+export const sendMessageToGemini = async (
+  history: Message[],
+  newMessage: string,
+  image: string | undefined,
+  languageCode: string,
+  mode: PocusMode
+): Promise<string> => {
+  try {
+    // Vite 빌드 시 주입되는 process.env.API_KEY 참조
+    const apiKey = process.env.API_KEY;
+    
+    if (!apiKey || apiKey === "undefined" || apiKey === "") {
+      throw new Error("API_KEY가 설정되지 않았습니다. Vercel 환경 변수를 확인하세요.");
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const languageConfig = SUPPORTED_LANGUAGES.find(l => l.code === languageCode) || SUPPORTED_LANGUAGES[0];
+    const modeString = mode === 'adult' ? 'Adult' : 'Pediatric';
+
+    let systemInstruction = SYSTEM_INSTRUCTION_TEMPLATE
+      .replace(/{LANGUAGE}/g, languageConfig.aiParam)
+      .replace(/{MODE}/g, modeString);
+
+    const historyContents: Content[] = history
+      .filter((msg) => !msg.isError)
+      .map((msg) => {
+        const parts: Part[] = [];
+        if (msg.image) {
+          const mimeMatch = msg.image.match(/^data:(.+);base64,(.+)$/);
+          if (mimeMatch) {
+            parts.push({
+              inlineData: {
+                mimeType: mimeMatch[1],
+                data: mimeMatch[2]
+              }
+            });
+          }
+        }
+        if (msg.text) {
+          parts.push({ text: msg.text });
+        }
+        return {
+          role: msg.role,
+          parts: parts
+        };
+      });
+
+    let promptText = newMessage;
+    if (image) {
+       promptText += "\n\n[SYSTEM REQUEST]: Analyze this image using 'Hybrid Intelligence Mode'.";
+    }
+
+    const currentParts: Part[] = [{ text: promptText }];
+    if (image) {
+       const mimeMatch = image.match(/^data:(.+);base64,(.+)$/);
+       if (mimeMatch) {
+         currentParts.unshift({
+           inlineData: {
+             mimeType: mimeMatch[1],
+             data: mimeMatch[2]
+           }
+         });
+       }
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [...historyContents.slice(0, -1), { role: 'user', parts: currentParts }],
+      config: {
+        systemInstruction: systemInstruction,
+        temperature: 0.1,
+      },
+    });
+    
+    return response.text || "결과를 생성할 수 없습니다.";
+
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    throw new Error(error instanceof Error ? error.message : "에러가 발생했습니다.");
   }
-}
-</script>
-</head>
-  <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden">
-    <div id="root" class="h-full"></div>
-    <script type="module" src="./index.tsx"></script>
-  </body>
-</html>
+};
